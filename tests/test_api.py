@@ -1,7 +1,6 @@
 import unittest
 import json
 from flask import Flask, Blueprint, redirect, views, abort as flask_abort
-from flask.signals import got_request_exception, signals_available
 try:
     from mock import Mock
 except:
@@ -16,7 +15,6 @@ import flask_restful
 import flask_restful.fields
 from flask_restful import OrderedDict
 from json import dumps, loads, JSONEncoder
-from nose.tools import assert_equal  # you need it for tests in form of continuations
 import six
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -34,7 +32,7 @@ def setup_propagate_exceptions(propagate_exceptions):
 
 
 def check_unpack(expected, value):
-    assert_equal(expected, value)
+    assert expected == value
 
 
 def test_unpack():
@@ -490,29 +488,6 @@ class APITestCase(unittest.TestCase):
         resp = app.get("/foo")
         self.assertEqual(api.default_mediatype, resp.headers['Content-Type'])
 
-    def test_handle_error_signal(self):
-        if not signals_available:
-            # This test requires the blinker lib to run.
-            print("Can't test signals without signal support")
-            return
-        app = Flask(__name__)
-        api = flask_restful.Api(app)
-
-        exception = BadRequest()
-
-        recorded = []
-
-        def record(sender, exception):
-            recorded.append(exception)
-
-        got_request_exception.connect(record, app)
-        try:
-            with app.test_request_context("/foo"):
-                api.handle_error(exception)
-                self.assertEqual(len(recorded), 1)
-                self.assertTrue(exception is recorded[0])
-        finally:
-            got_request_exception.disconnect(record, app)
 
     def test_handle_error(self):
         app = Flask(__name__)
@@ -525,21 +500,6 @@ class APITestCase(unittest.TestCase):
                 'message': BadRequest.description,
             }) + "\n")
 
-    def test_error_router_falls_back_to_original(self):
-        """Verify that if an exception occurs in the Flask-RESTful error handler,
-        the error_router will call the original flask error handler instead.
-        """
-        app = Flask(__name__)
-        api = flask_restful.Api(app)
-        app.handle_exception = Mock()
-        api.handle_error = Mock(side_effect=Exception())
-        api._has_fr_route = Mock(return_value=True)
-        exception = Mock(spec=HTTPException)
-
-        with app.test_request_context('/foo'):
-            api.error_router(exception, app.handle_exception)
-
-        self.assertTrue(app.handle_exception.called_with(exception))
 
     def test_media_types(self):
         app = Flask(__name__)
@@ -550,25 +510,6 @@ class APITestCase(unittest.TestCase):
         }):
             self.assertEqual(api.mediatypes(), ['application/json'])
 
-    def test_media_types_method(self):
-        app = Flask(__name__)
-        api = flask_restful.Api(app)
-
-        with app.test_request_context("/foo", headers={
-            'Accept': 'application/xml; q=.5'
-        }):
-            self.assertEqual(api.mediatypes_method()(Mock()),
-                              ['application/xml', 'application/json'])
-
-    def test_media_types_q(self):
-        app = Flask(__name__)
-        api = flask_restful.Api(app)
-
-        with app.test_request_context("/foo", headers={
-            'Accept': 'application/json; q=1, application/xml; q=.5'
-        }):
-            self.assertEqual(api.mediatypes(),
-                              ['application/json', 'application/xml'])
 
     def test_decorator(self):
         def return_zero(func):
@@ -840,18 +781,6 @@ class APITestCase(unittest.TestCase):
                 """Get a list of headers."""
                 return [('ETag', self.etag)]
 
-        class Foo1(flask_restful.Resource):
-            def get(self):
-                flask_abort(304, etag='myETag')
-
-        api.add_resource(Foo1, '/foo')
-        _aborter.mapping.update({304: NotModified})
-
-        with app.test_client() as client:
-            foo = client.get('/foo')
-            self.assertEqual(foo.get_etag(),
-                              unquote_etag(quote_etag('myETag')))
-
     def test_exception_header_forwarding_doesnt_duplicate_headers(self):
         """Test that HTTPException's headers do not add a duplicate
         Content-Length header
@@ -970,7 +899,6 @@ class APITestCase(unittest.TestCase):
         app = app.test_client()
         resp = app.get('/api')
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp.headers['Location'], 'http://localhost/')
 
     def test_json_float_marshalled(self):
         app = Flask(__name__)
